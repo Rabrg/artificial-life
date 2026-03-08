@@ -15,4 +15,4 @@ uv run main.py --seed 1
 
 In this run, a self-replicator emerges relatively early on into the run and soon takes over most of the grid, until a more efficient self-replicator evolves and takes over everything.
 
-![Example](./universe.mp4)
+![Example](./universe.gif)
