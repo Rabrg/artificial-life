@@ -1,4 +1,5 @@
 import argparse
+import math
 from pathlib import Path
 
 import numpy as np
@@ -170,13 +171,12 @@ def build_color_lut() -> np.ndarray:
 
 
 def render_program_frame(programs: np.ndarray, color_lut: np.ndarray) -> np.ndarray:
-    if programs.shape[2] != 64:
-        raise ValueError("GIF rendering requires tape_size == 64 (8x8 tapes)")
-
+    root = int(math.sqrt(programs.shape[2]))
+    assert root**2 == programs.shape[2], "GIF rendering requires tape_size to be a square number"
     grid_width, grid_height, _ = programs.shape
-    tapes = normalize_cells(programs).reshape(grid_width, grid_height, 8, 8)
+    tapes = normalize_cells(programs).reshape(grid_width, grid_height, root, root)
     colored = color_lut[tapes]
-    return colored.transpose(1, 2, 0, 3, 4).reshape(grid_height * 8, grid_width * 8, 3)
+    return colored.transpose(1, 2, 0, 3, 4).reshape(grid_height * root, grid_width * root, 3)
 
 
 def save_evolution_gif(frames: list[Image.Image], output_path: str, fps: int) -> None:
@@ -277,8 +277,8 @@ if __name__ == "__main__":
         raise ValueError("--gif-every must be > 0")
     if args.gif_fps <= 0:
         raise ValueError("--gif-fps must be > 0")
-    if args.tape_size != 64:
-        raise ValueError("--tape-size must be 64 to render each tape as an 8x8 grid")
+    if int(math.sqrt(args.tape_size))**2 != args.tape_size:
+        raise ValueError("GIF rendering requires tape_size to be a square number")
 
     rng = np.random.default_rng(args.seed)
     programs = rng.integers(
