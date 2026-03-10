@@ -107,14 +107,13 @@ def apply_background_mutation(
     if mutation_rate <= 0.0:
         return
 
-    flat = programs.ravel()
-    num_cells = flat.size
-    num_mutations = rng.binomial(num_cells, mutation_rate)
-    if num_mutations == 0:
-        return
-
-    mutation_indices = rng.choice(num_cells, size=num_mutations, replace=False)
-    flat[mutation_indices] = rng.integers(0, 256, size=num_mutations, dtype=np.uint8)
+    grid_width, grid_height, tape_size = programs.shape
+    num_cells = grid_width * grid_height
+    cells = programs.reshape(num_cells, tape_size)
+    mutation_mask = (rng.random(num_cells) < mutation_rate)
+    num_mutations = mutation_mask.sum()
+    if num_mutations != 0:
+        cells[mutation_mask] = rng.integers(0, 256, size=(num_mutations, tape_size), dtype=np.uint8)
 
 
 def build_neighborhood(width: int, height: int) -> tuple[np.ndarray, np.ndarray]:
