@@ -101,12 +101,16 @@ def run_epoch_pairs(programs: np.ndarray, pairs: np.ndarray, pair_count: int) ->
         programs[idx_b] = tape[tape_size:]
 
 
-def apply_background_mutation(
-    programs: np.ndarray, mutation_rate: float, rng: np.random.Generator
-) -> None:
-    if mutation_rate <= 0.0:
-        return
+def build_mutation_rates(grid_width, grid_height, mutation_rate):
+    # Use the same mutation rate uniformly over the whole grid.
+    return np.full(grid_width * grid_height, mutation_rate)
+    # Or, smoothly change the mutation rate from one side of the grid to the other.
+    # return np.tile(np.linspace(mutation_rate // 2., mutation_rate * 2., grid_width), grid_height)
 
+
+def apply_background_mutation(
+    programs: np.ndarray, mutation_rate: np.ndarray, rng: np.random.Generator
+) -> None:
     grid_width, grid_height, tape_size = programs.shape
     num_cells = grid_width * grid_height
     cells = programs.reshape(num_cells, tape_size)
@@ -222,6 +226,7 @@ def run_epochs(
     taken = np.empty(num_programs, dtype=np.uint8)
     frames: list[Image.Image] = []
     color_lut = build_color_lut()
+    mutation_rates = build_mutation_rates(grid_width, grid_height, mutation_rate)
 
     pbar = tqdm(range(nepochs))
     for epoch in pbar:
@@ -236,7 +241,8 @@ def run_epochs(
 
         pair_count = select_pairs(order, proposals, pairs, taken)
         run_epoch_pairs(flat_programs, pairs, pair_count)
-        apply_background_mutation(programs, mutation_rate, rng)
+        if mutation_rate > 0.0:
+            apply_background_mutation(programs, mutation_rates, rng)
         if color_lut is not None and (
             (epoch + 1) % gif_every == 0 or epoch + 1 == nepochs or epoch == 0
         ):
