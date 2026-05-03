@@ -5,6 +5,7 @@ description = "A simple Python implementation of the 2D BFF universe from Comput
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "imageio[ffmpeg]>=2.37.2",
     "numba>=0.64.0",
     "numpy>=2.4.2",
     "pillow>=12.1.1",

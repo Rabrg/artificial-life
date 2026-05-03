@@ -1,6 +1,8 @@
 import argparse
+from datetime import datetime
 from pathlib import Path
 
+import imageio.v2 as iio
 import numpy as np
 from numba import njit, prange
 from PIL import Image
@@ -198,6 +200,27 @@ def save_evolution_gif(frames: list[Image.Image], output_path: str, fps: int) ->
     )
 
 
+def save_evolution_mp4(frames: list[Image.Image], output_path: str, fps: int) -> None:
+    if not frames:
+        raise ValueError("No MP4 frames were captured")
+    if fps <= 0:
+        raise ValueError("--gif-fps must be > 0")
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    with iio.get_writer(
+        output, format="FFMPEG", fps=fps, codec="libx264", pixelformat="yuv420p"
+    ) as writer:
+        for frame in frames:
+            writer.append_data(np.asarray(frame))
+
+
+def default_output_stem(seed: int) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return Path("outputs") / f"seed-{seed}_{timestamp}"
+
+
 def opcode_token_percent(programs: np.ndarray) -> float:
     counts = np.bincount(programs.ravel(), minlength=256)
     return 100.0 * float(counts[OPCODE_TOKENS].sum()) / float(programs.size)
@@ -260,12 +283,18 @@ if __name__ == "__main__":
     parser.add_argument("--num-programs", type=int, default=32_400)
     parser.add_argument("--grid-width", type=int, default=240)
     parser.add_argument("--grid-height", type=int, default=135)
-    parser.add_argument("--gif-path", type=str, default="universe.gif")
     parser.add_argument(
-        "--mp4-path",
+        "--gif-path",
         type=str,
         default=None,
-        help="MP4 output path; defaults to --gif-path with .mp4 suffix",
+        help="GIF output path; defaults to a timestamped path under outputs/",
+    )
+    parser.add_argument(
+        "--mp4-path",
+        nargs="?",
+        const="",
+        default=None,
+        help="Optional MP4 output path; pass without a value to default to --gif-path with .mp4 suffix",
     )
     parser.add_argument("--gif-every", type=int, default=20)
     parser.add_argument("--gif-fps", type=int, default=20)
@@ -280,6 +309,11 @@ if __name__ == "__main__":
     if args.tape_size != 64:
         raise ValueError("--tape-size must be 64 to render each tape as an 8x8 grid")
 
+    gif_path = args.gif_path or str(default_output_stem(args.seed).with_suffix(".gif"))
+    mp4_path = None
+    if args.mp4_path is not None:
+        mp4_path = args.mp4_path or str(Path(gif_path).with_suffix(".mp4"))
+
     rng = np.random.default_rng(args.seed)
     programs = rng.integers(
         0, 256, size=(args.grid_width, args.grid_height, args.tape_size), dtype=np.uint8
@@ -292,5 +326,8 @@ if __name__ == "__main__":
         rng,
         gif_every=args.gif_every,
     )
-    save_evolution_gif(frames, args.gif_path, args.gif_fps)
-    print(f"wrote GIF: {Path(args.gif_path).resolve()}")
+    save_evolution_gif(frames, gif_path, args.gif_fps)
+    print(f"wrote GIF: {Path(gif_path).resolve()}")
+    if mp4_path is not None:
+        save_evolution_mp4(frames, mp4_path, args.gif_fps)
+        print(f"wrote MP4: {Path(mp4_path).resolve()}")
