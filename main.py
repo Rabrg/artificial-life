@@ -1,4 +1,6 @@
 import argparse
+import shutil
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -179,23 +181,33 @@ def render_program_frame(programs: np.ndarray, color_lut: np.ndarray) -> np.ndar
     return colored.transpose(1, 2, 0, 3, 4).reshape(grid_height * 8, grid_width * 8, 3)
 
 
-def save_evolution_gif(frames: list[Image.Image], output_path: str, fps: int) -> None:
-    if not frames:
+def save_evolution_gif(frame_paths: list[str], output_path: str, fps: int) -> None:
+    if not frame_paths:
         raise ValueError("No GIF frames were captured")
     if fps <= 0:
         raise ValueError("--gif-fps must be > 0")
 
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    frames[0].save(
-        output,
-        save_all=True,
-        append_images=frames[1:],
-        duration=max(1, int(round(1000 / fps))),
-        loop=0,
-        optimize=False,
-        disposal=2,
-    )
+    images: list[Image.Image] = []
+    try:
+        for path in frame_paths:
+            img = Image.open(path)
+            img.load()
+            images.append(img)
+
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        images[0].save(
+            output,
+            save_all=True,
+            append_images=images[1:],
+            duration=max(1, int(round(1000 / fps))),
+            loop=0,
+            optimize=False,
+            disposal=2,
+        )
+    finally:
+        for img in images:
+            img.close()
 
 
 def opcode_token_percent(programs: np.ndarray) -> float:
@@ -209,7 +221,8 @@ def run_epochs(
     mutation_rate: float,
     rng: np.random.Generator,
     gif_every: int,
-) -> list[Image.Image]:
+    frames_dir: str,
+) -> list[str]:
     grid_width, grid_height, tape_size = programs.shape
     num_programs = grid_width * grid_height
     flat_programs = programs.reshape(num_programs, tape_size)
@@ -221,7 +234,7 @@ def run_epochs(
     pairs = np.empty((num_programs // 2, 2), dtype=np.int32)
     proposals = np.empty(num_programs, dtype=np.int32)
     taken = np.empty(num_programs, dtype=np.uint8)
-    frames: list[Image.Image] = []
+    frame_paths: list[str] = []
     color_lut = build_color_lut()
 
     pbar = tqdm(range(nepochs))
@@ -241,12 +254,16 @@ def run_epochs(
         if color_lut is not None and (
             (epoch + 1) % gif_every == 0 or epoch + 1 == nepochs or epoch == 0
         ):
-            frames.append(
-                Image.fromarray(render_program_frame(programs, color_lut), mode="RGB")
-            )
-        pbar.set_postfix_str(f"opcode={opcode_token_percent(programs):.2f}%")
+            arr = render_program_frame(programs, color_lut)
+            img = Image.fromarray(arr, mode="RGB")
+            path = f"{frames_dir}/frame_{epoch:06d}.png"
+            img.save(path, format="PNG")
+            frame_paths.append(path)
+        pbar.set_postfix_str(
+            f"opcode={opcode_token_percent(programs):.2f}% frames={len(frame_paths)}"
+        )
 
-    return frames
+    return frame_paths
 
 
 if __name__ == "__main__":
@@ -269,6 +286,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--gif-every", type=int, default=20)
     parser.add_argument("--gif-fps", type=int, default=20)
+    parser.add_argument(
+        "--frames-dir",
+        type=str,
+        default=None,
+        help="Directory to store intermediate frame PNGs; defaults to a temp directory (auto-cleaned after successful save)",
+    )
     args = parser.parse_args()
 
     if args.grid_width * args.grid_height != args.num_programs:
@@ -285,12 +308,33 @@ if __name__ == "__main__":
         0, 256, size=(args.grid_width, args.grid_height, args.tape_size), dtype=np.uint8
     )
 
-    frames = run_epochs(
-        programs,
-        args.num_epochs,
-        args.mutation_rate,
-        rng,
-        gif_every=args.gif_every,
-    )
-    save_evolution_gif(frames, args.gif_path, args.gif_fps)
-    print(f"wrote GIF: {Path(args.gif_path).resolve()}")
+    if args.frames_dir:
+        frames_dir = args.frames_dir
+        Path(frames_dir).mkdir(parents=True, exist_ok=True)
+        auto_clean = False
+    else:
+        frames_dir = tempfile.mkdtemp(prefix="alife_frames_")
+        auto_clean = True
+
+    gif_saved = False
+    frame_paths: list[str] = []
+    try:
+        frame_paths = run_epochs(
+            programs,
+            args.num_epochs,
+            args.mutation_rate,
+            rng,
+            gif_every=args.gif_every,
+            frames_dir=frames_dir,
+        )
+        save_evolution_gif(frame_paths, args.gif_path, args.gif_fps)
+        print(f"wrote GIF: {Path(args.gif_path).resolve()}")
+        gif_saved = True
+    finally:
+        if auto_clean and gif_saved:
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        elif auto_clean and not gif_saved:
+            print(f"Simulation interrupted. Frames preserved in: {frames_dir}")
+            print(f"To reassemble manually, the frame PNGs are numbered sequentially.")
+        elif not auto_clean:
+            print(f"Frames preserved in: {frames_dir}")
